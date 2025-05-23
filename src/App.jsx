@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const App = () => {
   const menuData = [
@@ -144,6 +144,7 @@ const App = () => {
     }
   ];
 
+  const [tableNumber, setTableNumber] = useState(null);
   const [cart, setCart] = useState({});
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showOrderConfirm, setShowOrderConfirm] = useState(false);
@@ -153,6 +154,70 @@ const App = () => {
   const [showExpandableMenu, setShowExpandableMenu] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [orderHistory, setOrderHistory] = useState([]);
+  const [showTableModal, setShowTableModal] = useState(false);
+
+  // Extract table number from URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const table = urlParams.get('table');
+    
+    if (table) {
+      setTableNumber(table);
+      // Load cart and order history for this specific table
+      loadTableData(table);
+    } else {
+      setShowTableModal(true);
+    }
+  }, []);
+
+  // Update URL when table number changes
+  const updateURL = (table) => {
+    const url = new URL(window.location);
+    url.searchParams.set('table', table);
+    window.history.pushState({}, '', url);
+  };
+
+  // Load table-specific data from memory
+  const loadTableData = (table) => {
+    const tableKey = `table_${table}`;
+    // In a real application, you would load this from a database
+    // For now, we'll use in-memory storage that resets on page refresh
+    const savedCart = window[`cart_${tableKey}`] || {};
+    const savedHistory = window[`history_${tableKey}`] || [];
+    
+    setCart(savedCart);
+    setOrderHistory(savedHistory);
+  };
+
+  // Save table-specific data to memory
+  const saveTableData = (table, cartData, historyData) => {
+    const tableKey = `table_${table}`;
+    window[`cart_${tableKey}`] = cartData;
+    window[`history_${tableKey}`] = historyData;
+  };
+
+  // Update cart and save to table-specific storage
+  const updateCart = (newCart) => {
+    setCart(newCart);
+    if (tableNumber) {
+      saveTableData(tableNumber, newCart, orderHistory);
+    }
+  };
+
+  // Update order history and save to table-specific storage
+  const updateOrderHistory = (newHistory) => {
+    setOrderHistory(newHistory);
+    if (tableNumber) {
+      saveTableData(tableNumber, cart, newHistory);
+    }
+  };
+
+  const handleTableSelect = (table) => {
+    setTableNumber(table);
+    updateURL(table);
+    loadTableData(table);
+    setShowTableModal(false);
+  };
 
   const VegIcon = ({ isVeg }) => (
     <span 
@@ -164,31 +229,28 @@ const App = () => {
   );
 
   const addToCart = (itemId) => {
-    setCart(prev => ({
-      ...prev,
-      [itemId]: (prev[itemId] || 0) + 1
-    }));
+    const newCart = {
+      ...cart,
+      [itemId]: (cart[itemId] || 0) + 1
+    };
+    updateCart(newCart);
   };
 
   const removeFromCart = (itemId) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      if (newCart[itemId]) {
-        newCart[itemId]--;
-        if (newCart[itemId] <= 0) {
-          delete newCart[itemId];
-        }
+    const newCart = { ...cart };
+    if (newCart[itemId]) {
+      newCart[itemId]--;
+      if (newCart[itemId] <= 0) {
+        delete newCart[itemId];
       }
-      return newCart;
-    });
+    }
+    updateCart(newCart);
   };
 
   const deleteFromCart = (itemId) => {
-    setCart(prev => {
-      const newCart = { ...prev };
-      delete newCart[itemId];
-      return newCart;
-    });
+    const newCart = { ...cart };
+    delete newCart[itemId];
+    updateCart(newCart);
   };
 
   const getCartTotal = () => {
@@ -217,14 +279,16 @@ const App = () => {
           id: Date.now(),
           items: { ...cart },
           total: getCartTotal(),
-          date: new Date().toLocaleDateString()
+          date: new Date().toLocaleDateString(),
+          tableNumber: tableNumber
         };
-        setOrderHistory(prev => [newOrder, ...prev]);
+        const newHistory = [newOrder, ...orderHistory];
+        updateOrderHistory(newHistory);
       }
       
       setShowLoginModal(false);
       setShowOrderConfirm(true);
-      setCart({});
+      updateCart({});
     } else {
       setLoginError('Invalid email or password!');
     }
@@ -236,7 +300,7 @@ const App = () => {
   };
 
   const handleReorder = (orderItems) => {
-    setCart(orderItems);
+    updateCart(orderItems);
     setShowExpandableMenu(false);
   };
 
@@ -267,10 +331,75 @@ const App = () => {
     setShowOrderConfirm(false);
   };
 
+  const changeTable = () => {
+    setShowTableModal(true);
+  };
+
+  // Table Selection Modal
+  if (showTableModal) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-8 shadow-lg w-full max-w-md">
+          <h2 className="text-2xl font-bold text-center text-green-700 mb-6">Select Your Table</h2>
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            {Array.from({ length: 20 }, (_, i) => i + 1).map((num) => (
+              <button
+                key={num}
+                onClick={() => handleTableSelect(num.toString())}
+                className="bg-green-100 hover:bg-green-200 border-2 border-green-300 rounded-lg p-4 text-center font-semibold text-green-800 transition-colors"
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+          <div className="text-center">
+            <p className="text-sm text-gray-600 mb-4">Or enter a custom table number:</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Table number"
+                className="flex-1 border rounded px-3 py-2"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && e.target.value.trim()) {
+                    handleTableSelect(e.target.value.trim());
+                  }
+                }}
+              />
+              <button
+                onClick={(e) => {
+                  const input = e.target.previousElementSibling;
+                  if (input.value.trim()) {
+                    handleTableSelect(input.value.trim());
+                  }
+                }}
+                className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              >
+                Go
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-center text-green-700 mb-8">Quick Dine Menu</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-green-700">Quick Dine Menu</h1>
+          <div className="text-right">
+            <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-semibold mb-1">
+              Table {tableNumber}
+            </div>
+            <button
+              onClick={changeTable}
+              className="text-xs text-green-600 hover:text-green-800 underline"
+            >
+              Change Table
+            </button>
+          </div>
+        </div>
         
         {/* Menu Section */}
         <div>
@@ -417,6 +546,7 @@ const App = () => {
           <div className="fixed inset-0 bg-gray-900 bg-opacity-40 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 shadow-lg w-full max-w-sm">
               <h3 className="text-lg font-bold mb-4">Login to Confirm Order</h3>
+              <div className="text-sm text-gray-600 mb-4">Table: {tableNumber}</div>
               <div className="flex flex-col gap-4">
                 <input 
                   type="email" 
@@ -462,7 +592,7 @@ const App = () => {
             <div className="bg-white rounded-lg p-6 shadow-lg w-full max-w-sm text-center">
               <h3 className="text-lg font-bold mb-4 text-green-700">Order Placed!</h3>
               <p className="mb-4">
-                Thank you for ordering.<br />
+                Thank you for ordering from <strong>Table {tableNumber}</strong>.<br />
                 Our staff has received your order.<br />
                 <span className="text-xs text-gray-400">You can now close this window.</span>
               </p>
